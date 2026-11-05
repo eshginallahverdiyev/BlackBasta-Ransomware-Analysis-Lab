@@ -1,0 +1,16 @@
+# Never commit live malware or captured artifacts
+*.exe
+*.dll
+*.bin
+*.7z
+*.zip
+*.pml
+*.pcap
+*.pcapng
+*.hiv
+*.hivu
+*.basta
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
