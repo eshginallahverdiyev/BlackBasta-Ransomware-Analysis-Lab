@@ -1,0 +1,15 @@
+type,value,context
+sha256,ae7c868713e1d02b4db60128c651eb1e3f6a33c02544cc4cb57c3aa6c6581b6e,BlackBasta.exe
+sha1,a996ccd0d58125bf299e89f4c03ff37afdab33fc,BlackBasta.exe
+md5,53fdeb923b1890d29b8f29da77995938,BlackBasta.exe
+imphash,b3794746554a5701b2de3e5ea435c59b,pestudio/VirusTotal
+ssdeep,12288:M1DTMHixr1moQqUiXINDl/m1s6BQio67VlAU:AzmoQqUiXw2s6yiVxR,VirusTotal
+filename,readme.txt,ransom note dropped in many directories
+file_extension,.basta,encrypted file extension
+registry,HKCU\Control Panel\Desktop\Wallpaper,modified to ransom wallpaper
+registry,HKCR\.basta,creation attempted (ACCESS DENIED when non-elevated)
+registry,HKCR\.basta\DefaultIcon,creation attempted
+command,vssadmin.exe delete shadows /all /quiet,embedded string
+process,SysWOW64\cmd.exe,spawned by sample
+process,System32\conhost.exe,spawned by sample
+onion,aazsbsgya565vlu2c6bzy6yfiebkcbtvvcytvolt33s77xypi7nypxyd.onion,ransom note negotiation site
