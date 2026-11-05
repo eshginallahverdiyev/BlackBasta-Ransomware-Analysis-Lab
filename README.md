@@ -35,7 +35,7 @@
 10. [Behavior Timeline](#10-behavior-timeline)
 11. [MITRE ATT&CK Mapping](#11-mitre-attck-mapping)
 12. [Indicators of Compromise](#12-indicators-of-compromise)
-13. [Detection Engineering](#13-detection-engineering)
+13. [Detection Engineering](#13-detection-engineering) (Sigma, KQL, YARA)
 14. [Mitigation and Hardening Recommendations](#14-mitigation-and-hardening-recommendations)
 15. [Skills Demonstrated](#15-skills-demonstrated)
 16. [Limitations and Future Work](#16-limitations-and-future-work)
@@ -121,9 +121,19 @@ blackbasta-ransomware-analysis-lab/
 │   ├── 07-detection-and-mitigation.md
 │   └── 08-lessons-learned.md
 ├── detections/
-│   └── sigma/
-│       ├── shadow_copy_deletion_vssadmin.yml
-│       └── ransom_note_mass_creation.yml
+│   ├── sigma/
+│   │   ├── shadow_copy_deletion_vssadmin.yml
+│   │   └── ransom_note_mass_creation.yml
+│   └── yara/                          <- 9 files / 22 YARA rules (see Section 13.3)
+│       ├── blackbasta_sample_identification.yar
+│       ├── blackbasta_pe_structure.yar
+│       ├── blackbasta_embedded_ransom_note.yar
+│       ├── blackbasta_shadow_copy_deletion.yar
+│       ├── blackbasta_crypto_and_runtime_strings.yar
+│       ├── blackbasta_ransom_note_file.yar
+│       ├── blackbasta_wallpaper_and_registry.yar
+│       ├── blackbasta_memory_scanning.yar
+│       └── blackbasta_generic_ransomware_hunting.yar
 ├── iocs/
 │   └── iocs.csv
 └── screenshots/
@@ -852,10 +862,13 @@ A machine-readable list is in [`iocs/iocs.csv`](iocs/iocs.csv).
 | 5 | `HKCU\Control Panel\Desktop\Wallpaper` changed by a non-system process | Sysmon EID 13 | Medium |
 | 6 | Attempt to create `HKCR\.<random ext>` / `DefaultIcon` | Sysmon EID 12/13 | Medium |
 | 7 | One process with extreme CPU and file I/O | EDR / perf telemetry | Low-Medium |
+| 8 | Static/memory/file signatures (note text, strings, PE structure) | YARA | See 13.3 |
+
+### 13.1 Sigma rules
 
 **Sigma rules:** [`detections/sigma/shadow_copy_deletion_vssadmin.yml`](detections/sigma/shadow_copy_deletion_vssadmin.yml) and [`detections/sigma/ransom_note_mass_creation.yml`](detections/sigma/ransom_note_mass_creation.yml).
 
-**KQL hunting examples**
+### 13.2 KQL hunting examples
 
 ```kql
 // Shadow-copy deletion
@@ -872,6 +885,48 @@ DeviceFileEvents
 | summarize Dirs=dcount(FolderPath), Files=count() by DeviceName, InitiatingProcessFileName, bin(Timestamp, 1m)
 | where Dirs > 50
 ```
+
+
+### 13.3 YARA rules
+
+Nine rule files (22 rules) are provided in [`detections/yara/`](detections/yara/). They were written **only from artifacts observed in this lab** (strings, PE metadata, imports, dropped note, registry/wallpaper behavior) and are organized by *what they scan* and *how specific they are*.
+
+| File | Rules | Scan target | Specificity |
+|---|---|---|---|
+| `blackbasta_sample_identification.yar` | `BlackBasta_Lab_Sample_Exact_Hash`, `BlackBasta_Lab_Sample_Imphash`, `BlackBasta_Lab_Sample_PE_Metadata` | PE files | Exact build only (hash / imphash / compile timestamp `1650090598`) |
+| `blackbasta_pe_structure.yar` | `BlackBasta_PE_Structure_Heuristic`, `BlackBasta_PE_Imports_FileAndVolume_Enumeration` | PE files | Structural heuristics (5-section layout, 32-byte overlay, volume/file enumeration imports) |
+| `blackbasta_embedded_ransom_note.yar` | `BlackBasta_Embedded_Ransom_Note_Template`, `BlackBasta_Embedded_Note_Plus_Crypto_Strings` | PE files | High - embedded 421-byte note template |
+| `blackbasta_shadow_copy_deletion.yar` | `BlackBasta_Shadow_Copy_Deletion_Commands`, `BlackBasta_Shadow_Deletion_Plus_Ransom_Indicators` | PE files | Medium / High - `vssadmin delete shadows` (T1490) |
+| `blackbasta_crypto_and_runtime_strings.yar` | `BlackBasta_Crypto_Library_Artifacts`, `BlackBasta_Console_Progress_Messages` | PE files | Medium - `expand 32-byte k`, GMP messages, console strings |
+| `blackbasta_ransom_note_file.yar` | `BlackBasta_Ransom_Note_File`, `BlackBasta_Ransom_Note_Generic_TOR_Leak_Wording` | `readme.txt` on disk / shares | High / Medium |
+| `blackbasta_wallpaper_and_registry.yar` | `BlackBasta_Wallpaper_Message_Text`, `BlackBasta_Basta_Extension_Registry_Artifacts`, `BlackBasta_Binary_Basta_Extension_And_Wallpaper_Strings` | Text artifacts, `.reg` exports, logs, binaries | Medium-High |
+| `blackbasta_memory_scanning.yar` | `BlackBasta_Memory_Strings_Combo`, `BlackBasta_Memory_Onion_And_Company_ID` | Process memory / memory dumps | High (no PE-header dependency) |
+| `blackbasta_generic_ransomware_hunting.yar` | `Hunt_Ransomware_VSSAdmin_Deletion_Plus_Enumeration`, `Hunt_Ransomware_Note_Template_Embedded_Generic`, `Hunt_Ransomware_Stream_Cipher_Constant_With_Bignum`, `Hunt_Unpacked_Small_Console_PE_With_Stackstrings_And_Overlay` | Broad hunting / retro-hunt | Low-Medium (expect false positives) |
+
+**Usage**
+
+```bash
+# Scan a directory with every rule file (YARA 4.x)
+find detections/yara -name "*.yar" -exec cat {} + > /tmp/blackbasta_all.yar
+yara -r -s /tmp/blackbasta_all.yar /path/to/scan
+
+# Scan a running process
+yara -s /tmp/blackbasta_all.yar <PID>
+
+# Scan a memory image with Volatility 3
+vol -f memory.raw yarascan.YaraScan --yara-file /tmp/blackbasta_all.yar
+```
+
+**Design notes**
+
+- Rules import only the standard `pe`, `hash` and `math` modules.
+- Ransom-note and wallpaper text are matched as `ascii wide` where they may appear in memory.
+- The 32-byte **overlay value is intentionally not used** - it is expected to differ between builds; only its size and presence are used.
+- File-hash and imphash rules match **this build only**. For family-level coverage rely on the string, note and behavioral rules.
+- Several indicators (e.g. `vssadmin delete shadows`, `expand 32-byte k`) appear in other malware and in legitimate software, so the broader rules in `blackbasta_generic_ransomware_hunting.yar` are labeled *low confidence* and should be used for hunting, not blocking.
+
+> [!NOTE]
+> **Validation status.** All 22 rules compile cleanly with YARA 4.x and were tested against synthetic data built from the observed strings (ransom note, wallpaper text, registry paths, embedded commands) and against benign text for false positives. They have **not** been run against the live sample binary or a large goodware corpus. Before production use, test them against the sample inside the isolated lab and against a clean-file set (e.g. a full Windows install plus common software) and tune as needed.
 
 ---
 
@@ -906,7 +961,7 @@ DeviceFileEvents
 - Behavioral analysis: Procmon, Process Explorer, Regshot, FakeNet-NG, Wireshark
 - Threat-intelligence enrichment (VirusTotal, YARA, sandbox reports)
 - MITRE ATT&CK mapping with evidence and confidence levels
-- IOC extraction and detection engineering (Sigma, KQL)
+- IOC extraction and detection engineering (YARA, Sigma, KQL)
 - Technical writing and documentation
 
 ---
@@ -925,7 +980,7 @@ DeviceFileEvents
 1. Reverse the encryption routine in **Ghidra / x64dbg** (key generation, chunking, file header/footer).
 2. Capture child-process **command lines** with Sysmon and export a full process tree.
 3. Compare **elevated vs non-elevated** execution.
-4. Develop and test a **YARA rule** from unique strings and code patterns.
+4. Validate and tune the provided **YARA rules** against the live sample, a goodware corpus and additional Black Basta builds; add code-pattern (byte-sequence) rules after reverse engineering the encryption routine.
 5. Analyze the **FakeNet-NG PCAP** for DNS/HTTP attempts.
 6. Compare with newer Black Basta builds (including ESXi/Linux variants).
 
@@ -940,6 +995,7 @@ DeviceFileEvents
 | Identification | HashMyFiles, Detect It Easy, PEiD | Hashes, compiler/packer |
 | Static | pestudio, PE-bear, FLOSS, capa | PE structure, strings, capabilities |
 | Threat intel | VirusTotal | Detections, YARA, sandbox, ATT&CK |
+| Detection | YARA 4.x, Sigma | Static, memory and file-share detection |
 | Dynamic | Regshot, Process Monitor, Process Explorer | Registry, process, file telemetry |
 | Network | FakeNet-NG, Wireshark | Simulated services, packet capture |
 
