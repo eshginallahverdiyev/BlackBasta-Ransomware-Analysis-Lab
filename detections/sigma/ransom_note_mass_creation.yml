@@ -1,0 +1,30 @@
+title: Possible Ransom Note Creation - readme.txt Written to Sensitive Paths
+id: 9b7e2d44-6f1a-4e0b-8c35-71d2a4c9e022
+status: experimental
+description: Detects creation of readme.txt by an executable running from a user-writable location. Intended as a hunting rule; pair with a count-based aggregation (many distinct directories within a short window) in your SIEM.
+references:
+  - https://attack.mitre.org/techniques/T1486/
+author: Malware Analysis Lab
+date: 2026/11/05
+tags:
+  - attack.impact
+  - attack.t1486
+logsource:
+  category: file_event
+  product: windows
+detection:
+  selection:
+    TargetFilename|endswith: '\readme.txt'
+    Image|contains:
+      - '\Users\'
+      - '\Temp\'
+      - '\Downloads\'
+      - '\Desktop\'
+  filter_common:
+    Image|endswith:
+      - '\notepad.exe'
+      - '\explorer.exe'
+  condition: selection and not filter_common
+falsepositives:
+  - Software installers that create readme.txt files
+level: medium

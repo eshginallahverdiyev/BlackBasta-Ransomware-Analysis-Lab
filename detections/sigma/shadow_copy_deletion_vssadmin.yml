@@ -1,0 +1,24 @@
+title: Volume Shadow Copy Deletion via vssadmin
+id: 5d0c8b1e-3a47-4c1f-9a53-2a6b1f0e7b11
+status: experimental
+description: Detects deletion of Volume Shadow Copies with vssadmin, a behavior observed in the analyzed Black Basta ransomware sample.
+references:
+  - https://attack.mitre.org/techniques/T1490/
+author: Malware Analysis Lab
+date: 2026/11/05
+tags:
+  - attack.impact
+  - attack.t1490
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection:
+    Image|endswith: '\vssadmin.exe'
+    CommandLine|contains|all:
+      - 'delete'
+      - 'shadows'
+  condition: selection
+falsepositives:
+  - Legitimate administrative cleanup of shadow copies
+level: high
